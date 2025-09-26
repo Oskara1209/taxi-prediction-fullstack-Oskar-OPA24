@@ -26,3 +26,23 @@ X_train, X_test, y_train, y_test = train_test_split(
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
+
+models = {
+    "Linear Regression": ("Scaled", LinearRegression()),
+    "Random forest":("Raw", RandomForestRegressor(n_estimators=300, random_state=42)),
+    "Gradient booset": ("Raw", GradientBoostingRegressor(n_estimators=300, random_state=42))
+}
+
+results = {}
+for name, (mode, model) in models.items():
+    if mode == "Scaled":
+        model.fit(X_train_scaled, y_train)
+        preds = model.predict(X_test_scaled)
+    else:
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+
+    mae = mean_absolute_error(y_test, preds)
+    rmse = np.sqrt(mean_squared_error(y_test, preds))
+    r2 = r2_score(y_test, preds)
+    results[name] = {"MAE": mae, "RMSE": rmse, "R2": r2, "model": model, "mode": mode}
