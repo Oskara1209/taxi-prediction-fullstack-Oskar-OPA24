@@ -14,6 +14,16 @@ st.set_page_config(page_title="Taxi Prediction Dashboard", layout="wide")
 if "route_payload" not in st.session_state:
     st.session_state.route_payload = None  # {"data":..., "start":..., "end":...}
 
+# ---------- Backend helpers ----------
+def geocode_suggest(q: str, limit: int = 5, locale: str = "sv"):
+    if not q or len(q.strip()) < 2:
+        return []
+    try:
+        r = requests.get(f"{BACKEND}/geocode", params={"q": q, "limit": limit, "locale": locale}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException:
+        return []
 
 data = read_api_endpoint("taxi")
 
