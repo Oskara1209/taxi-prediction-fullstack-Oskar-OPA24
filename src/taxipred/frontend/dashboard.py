@@ -68,11 +68,81 @@ def render_route_block(payload: dict):
         st_folium(m, width=900, height=520)
     else:
         st.warning("Kunde inte rita rutt – saknar points i svaret.")
+
 def main():
     st.markdown("# Taxi Prediction Dashboard")
 
-    st.dataframe(df)
+    tab1, tab2 = st.tabs(["Data (historik)", "Rutt (Beräkna din resa)"])
 
+    with tab1:
+        data_resp = read_api_endpoint("taxi")
+        df = pd.DataFrame(data_resp.json())
+        st.dataframe(df, use_container_width=True)
+
+    with tab2:
+        st.subheader("Beräkna distans & tid")
+        mode = st.radio("Inmatning", ["Adresser (autocomplete)", "Koordinater"], horizontal=True)
+
+        if mode == "Adresser (autocomplete)":
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("Startadress")
+                start_selected = st_searchbox(
+                    search_function=suggest_labels_start,
+                    placeholder="Skriv t.ex. 'Sixten Camps Gata...'",
+                    clear_on_submit=False,
+                    key="sb_start",
+                )
+            with c2:
+                st.write("Måladress")
+                end_selected = st_searchbox(
+                    search_function=suggest_labels_end,
+                    placeholder="Skriv t.ex. 'Persvägen 12A...'",
+                    clear_on_submit=False,
+                    key="sb_end",
+                )
+
+            profile = st.selectbox("Profil", ["car", "bike", "foot"], index=0)
+            btn_disabled = not (start_selected and end_selected)
+
+            if st.button("Hämta distans & tid", type="primary", disabled=btn_disabled, key="btn_addr"):
+                try:
+                    with st.spinner("Hämtar rutt..."):
+                        data = fetch_route(start_selected["lat"], start_selected["lon"],
+                                           end_selected["lat"], end_selected["lon"], profile=profile)
+                    # SPARA i session_state → rendera nedan varje rerun
+                    st.session_state.route_payload = {"data": data, "start": start_selected, "end": end_selected}
+                except Exception as ex:
+                    st.error(f"Något gick fel: {ex}")
+
+            if btn_disabled:
+                st.info("Sök och välj både start och mål i fälten ovan för att fortsätta.")
+
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                start_lat = st.number_input("Start lat", value=59.330000, format="%.6f")
+                start_lon = st.number_input("Start lon", value=18.058000, format="%.6f")
+            with c2:
+                end_lat = st.number_input("Mål lat", value=59.858000, format="%.6f")
+                end_lon = st.number_input("Mål lon", value=17.645000, format="%.6f")
+
+            profile = st.selectbox("Profil", ["car", "bike", "foot"], index=0, key="profile_coords")
+
+            if st.button("Hämta distans & tid", type="primary", key="btn_coords"):
+                try:
+                    with st.spinner("Hämtar rutt..."):
+                        data = fetch_route(start_lat, start_lon, end_lat, end_lon, profile=profile)
+                    st.session_state.route_payload = {"data": data, "start": None, "end": None}
+                except Exception as ex:
+                    st.error(f"Något gick fel: {ex}")
+
+        # ---- Rendera rutt (oavsett läge) om vi har en sparad payload ----
+        if st.session_state.route_payload:
+            render_route_block(st.session_state.route_payload)
+            st.button("Rensa ruta", on_click=lambda: st.session_state.update(route_payload=None))
+
+        
 
 if __name__ == "__main__":
     main()
