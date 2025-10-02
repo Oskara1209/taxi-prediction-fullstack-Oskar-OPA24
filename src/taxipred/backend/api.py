@@ -71,3 +71,28 @@ def geocode(q: str, limit: int = 5, locale: str = "sv"):
             "label": build_label(h),
         })
     return results
+
+@app.get("/route/")
+def get_route(start_lat: float, start_lon: float, end_lat: float, end_lon: float, profile: str = "car"):
+    url = f"{BASE}/route"
+    params = {
+        "point": [f"{start_lat},{start_lon}", f"{end_lat},{end_lon}"],
+        "profile": profile,
+        "locale": "sv",
+        "points_encoded": "false",
+        "instructions": "false",
+        "key": API_KEY,
+    }
+    r = requests.get(url, params=params, timeout=TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    if not data.get("paths"):
+        raise HTTPException(404, detail="Ingen rutt hittades")
+
+    path = data["paths"][0]
+    return {
+        "distance_km": round(path["distance"] / 1000, 2),
+        "duration_min": round(path["time"] / 60000, 1),
+        "points": path.get("points"),   # <<— LineString med coordinates = [[lon,lat,(ev. ele)], ...]
+        "bbox": path.get("bbox"),       # [min_lon, min_lat, max_lon, max_lat]
+    }
