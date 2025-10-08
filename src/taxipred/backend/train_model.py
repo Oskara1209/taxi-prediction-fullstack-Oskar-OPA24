@@ -56,7 +56,7 @@ pipelines = {
         ("model", LinearRegression())
     ]),
     "RandomForest": Pipeline(steps=[
-        ("prepp", preprocess),
+        ("prep", preprocess),
         ("model", RandomForestRegressor(n_estimators=150, random_state=42, n_jobs=-1 ))
     ]),
     "GradientBoosting": Pipeline(steps=[
