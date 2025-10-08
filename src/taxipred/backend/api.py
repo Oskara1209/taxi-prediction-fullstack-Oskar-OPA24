@@ -8,6 +8,8 @@ load_dotenv()
 
 app = FastAPI()
 
+taxi_data = CleanTaxiData()
+
 API_KEY = os.getenv("GRAPHOPPER_API_KEY") 
 if not API_KEY:
     raise RuntimeError("GRAPHOPPER_API_KEY saknas")
