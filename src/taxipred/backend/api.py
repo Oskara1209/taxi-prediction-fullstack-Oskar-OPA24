@@ -85,7 +85,7 @@ async def geocode(q: str, limit: int = 5, locale: str = "sv"):
     return results
 
 @app.get("/route/")
-def get_route(start_lat: float, start_lon: float, end_lat: float, end_lon: float, profile: str = "car"):
+async def get_route(start_lat: float, start_lon: float, end_lat: float, end_lon: float, profile: str = "car"):
     url = f"{BASE}/route"
     params = {
         "point": [f"{start_lat},{start_lon}", f"{end_lat},{end_lon}"],
