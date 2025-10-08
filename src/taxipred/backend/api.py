@@ -28,8 +28,13 @@ def load_model():
 async def read_taxi_data():
     return taxi_data.to_json()
 
+@app.get("/schema")
+async def data_schema():
+    df = taxi_data.df
+    return {"columns": list(df.columns)}
+
 @app.get("/geocode")
-def geocode(q: str, limit: int = 5, locale: str = "sv"):
+async def geocode(q: str, limit: int = 5, locale: str = "sv"):
     url = f"{BASE}/geocode"
     params = {"q": q, "limit": limit, "locale": locale, "key": API_KEY}
     r = requests.get(url, params=params, timeout=TIMEOUT)
