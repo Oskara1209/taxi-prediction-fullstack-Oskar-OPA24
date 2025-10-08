@@ -17,7 +17,12 @@ if not API_KEY:
 BASE = "https://graphhopper.com/api/1"
 TIMEOUT = 15
 
-taxi_data = CleanTaxiData()
+FX = {"USD": 1.00, "SEK": 11.00, "NOK": 11.50, "EUR": 0.92}
+SUPPORTED_CURRENCIES = set(FX.keys())
+
+def load_model():
+    with as_file(MODELS_PATH) as model_path:
+        return joblib.load(model_path)
 
 @app.get("/taxi/")
 async def read_taxi_data():
