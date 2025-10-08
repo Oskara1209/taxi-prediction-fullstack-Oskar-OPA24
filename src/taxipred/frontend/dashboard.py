@@ -146,21 +146,27 @@ def currency_selector() -> str:
     col_cur, _ = st.columns([1,3])
     with col_cur:
         return st.selectbox("Valuta", ["SEK", "NOK", "EUR", "USD"], index=0, key="sel_currency")
+    
+def render_route_map(route_payload: dict):
+    data = route_payload["data"]; s = route_payload.get("start"); e = route_payload.get("end")
+    cols = st.columns(2)
+    cols[0].metric("Distans", f"{data['distance_km']} km")
+    cols[1].metric("Tid", f"{data['duration_min']} min")
 
-    # Karta
     coords = (data.get("points") or {}).get("coordinates", [])
-    route_latlon = [(lat, lon) for lon, lat, *rest in coords]
-    if route_latlon:
-        m = folium.Map(location=route_latlon[0], zoom_start=12)
-        folium.PolyLine(route_latlon, weight=5, opacity=0.9).add_to(m)
-        folium.Marker(route_latlon[0], tooltip=f"Start: {s['label']}" if s else "Start").add_to(m)
-        folium.Marker(route_latlon[-1], tooltip=f"Mål: {e['label']}" if e else "Mål").add_to(m)
-        if data.get("bbox"):
-            min_lon, min_lat, max_lon, max_lat = data["bbox"]
-            m.fit_bounds([(min_lat, min_lon), (max_lat, max_lon)])
-        st_folium(m, width=900, height=520)
-    else:
+    route_latlon = [(lat, lon) for lon, lat, *_ in coords]
+    if not route_latlon:
         st.warning("Kunde inte rita rutt – saknar points i svaret.")
+        return
+
+    m = folium.Map(location=route_latlon[0], zoom_start=12)
+    folium.PolyLine(route_latlon, weight=5, opacity=0.9).add_to(m)
+    folium.Marker(route_latlon[0], tooltip=f"Start: {s['label']}" if s else "Start").add_to(m)
+    folium.Marker(route_latlon[-1], tooltip=f"Mål: {e['label']}" if e else "Mål").add_to(m)
+    if data.get("bbox"):
+        min_lon, min_lat, max_lon, max_lat = data["bbox"]
+        m.fit_bounds([(min_lat, min_lon), (max_lat, max_lon)])
+    st_folium(m, width=900, height=520)
 
 def main():
     st.markdown("# Taxi Prediction Dashboard")
