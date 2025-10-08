@@ -4,6 +4,10 @@ import requests
 from streamlit_searchbox import st_searchbox
 import folium
 from streamlit_folium import st_folium
+from typing import List
+from typing import List, Optional
+import altair as alt
+import numpy as np
 
 from taxipred.utils.helpers import read_api_endpoint
 
@@ -240,80 +244,230 @@ def whatif_panel(dist: float, dur: float, currency: str,
                      .reindex(index=weather_opt, columns=traffic_opt))
             st.dataframe(pvt, use_container_width=True)
 
+
 def main():
     st.markdown("# Taxi Prediction Dashboard")
+    tab_data, tab_route, tab_statistics = st.tabs(["Data (historik)", "Rutt (Beräkna din resa)", "Statistik"])
 
-    tab1, tab2 = st.tabs(["Data (historik)", "Rutt (Beräkna din resa)"])
-
-    with tab1:
-        data_resp = read_api_endpoint("taxi")
-        df = pd.DataFrame(data_resp.json())
+    # ---- Flik 1: Data ----
+    with tab_data:
+        df = load_taxi_df()
         st.dataframe(df, use_container_width=True)
 
-    with tab2:
+    with tab_statistics:
+        st.subheader("Diagram")
+        df = load_taxi_df()
+        needed = {"trip_price","trip_distance_km","trip_duration_minutes",
+              "per_km_rate","per_minute_rate","base_fare","weather","traffic_conditions"}
+        miss = needed - set(df.columns)
+        if miss:
+            st.warning(f"Saknar kolumner: {sorted(miss)}")
+            st.stop()
+        df = df.dropna(subset=["trip_price","trip_distance_km","trip_duration_minutes"])
+
+        # Härleder extra nyckeltal
+        df["price_per_km"] = df["trip_price"] / df["trip_distance_km"].replace(0, np.nan)
+        df["formula_price"] = (df["base_fare"]
+                           + df["per_km_rate"]*df["trip_distance_km"]
+                           + df["per_minute_rate"]*df["trip_duration_minutes"])
+        df["residual_formula"] = df["trip_price"] - df["formula_price"]
+
+        # --- Små filter för interaktivitet ---
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            w_sel = st.multiselect("Weather", sorted(df["weather"].dropna().unique().tolist()),
+                               default=sorted(df["weather"].dropna().unique().tolist()))
+        with c2:
+            t_sel = st.multiselect("Traffic", sorted(df["traffic_conditions"].dropna().unique().tolist()),
+                               default=sorted(df["traffic_conditions"].dropna().unique().tolist()))
+        with c3:
+            maxbins = st.slider("Antal bins (hist)", 10, 60, 30)
+
+        mask = df["weather"].isin(w_sel) & df["traffic_conditions"].isin(t_sel)
+        dff = df.loc[mask].copy()
+        if dff.empty:
+            st.info("Inga rader matchar filtret.")
+            st.stop()
+
+        st.markdown("### 1) Prisfördelning")
+        hist_price = (
+        alt.Chart(dff).mark_bar().encode(
+            x=alt.X("trip_price:Q", bin=alt.Bin(maxbins=maxbins), title="Pris (USD)"),
+            y=alt.Y("count()", title="Antal"),
+            tooltip=[alt.Tooltip("count()", title="Antal")]
+            ).properties(height=260)
+        )
+        st.altair_chart(hist_price, use_container_width=True)
+
+        st.markdown("### 2) Pris vs distans (med trend)")
+        pts = (alt.Chart(dff).mark_circle(size=60, opacity=0.6).encode(
+            x=alt.X("trip_distance_km:Q", title="Distans (km)"),
+            y=alt.Y("trip_price:Q", title="Pris (USD)"),
+            color=alt.Color("traffic_conditions:N", title="Traffic"),
+            tooltip=["trip_distance_km","trip_duration_minutes","trip_price","weather","traffic_conditions"]
+            )
+        )
+        trend = (alt.Chart(dff).transform_regression("trip_distance_km", "trip_price").mark_line().encode(x="trip_distance_km:Q", y="trip_price:Q"))
+        st.altair_chart(pts + trend, use_container_width=True)
+
+        st.markdown("### 3) Medelpris per väder (serier = traffic)")
+        bar_grp = (
+        alt.Chart(dff).mark_bar().encode(
+            x=alt.X("weather:N", title="Weather", sort=sorted(dff["weather"].unique().tolist())),
+            y=alt.Y("mean(trip_price):Q", title="Medelpris (USD)"),
+            color=alt.Color("traffic_conditions:N", title="Traffic",
+                            sort=sorted(dff["traffic_conditions"].unique().tolist())),
+            xOffset="traffic_conditions:N",
+            tooltip=["weather","traffic_conditions", alt.Tooltip("mean(trip_price):Q", title="Medelpris")]
+            )
+        )
+        st.altair_chart(bar_grp, use_container_width=True)
+
+        st.markdown("### 4) Heatmap: medelpris per (väder × traffic)")
+        heat = (alt.Chart(dff).mark_rect().encode(
+            x=alt.X("traffic_conditions:N", title="Traffic",
+                    sort=sorted(dff["traffic_conditions"].unique().tolist())),
+            y=alt.Y("weather:N", title="Weather",
+                    sort=sorted(dff["weather"].unique().tolist())),
+            color=alt.Color("mean(trip_price):Q", title="Medelpris (USD)"),
+            tooltip=["weather","traffic_conditions", alt.Tooltip("mean(trip_price):Q", title="Medelpris")]
+            ).properties(height=220)
+        )
+        text = (alt.Chart(dff).mark_text(baseline="middle").encode(
+            x="traffic_conditions:N",
+            y="weather:N",
+            text=alt.Text("mean(trip_price):Q", format=".1f")
+            )
+        )
+        st.altair_chart(heat + text, use_container_width=True)
+
+        st.markdown("### 5) Boxplot: Pris per trafiknivå")
+        box = (alt.Chart(dff).mark_boxplot().encode(
+            x=alt.X("traffic_conditions:N", title="Traffic",
+                    sort=sorted(dff["traffic_conditions"].unique().tolist())),
+            y=alt.Y("trip_price:Q", title="Pris (USD)"),
+            color=alt.Color("traffic_conditions:N", legend=None)
+            ).properties(height=280)
+        )
+        st.altair_chart(box, use_container_width=True)
+
+        st.markdown("### 6) Pris per km (histogram)")
+        hist_ppk = (
+            alt.Chart(dff.replace([np.inf, -np.inf], np.nan).dropna(subset=["price_per_km"]))
+            .mark_bar()
+            .encode(
+                x=alt.X("price_per_km:Q", bin=alt.Bin(maxbins=maxbins), title="Pris per km (USD/km)"),
+                y="count()",
+                tooltip=[alt.Tooltip("count()", title="Antal")]
+            ).properties(height=260)
+            )
+        st.altair_chart(hist_ppk, use_container_width=True)
+
+        st.markdown("### 7) Residual mot enkel formel (pris – formel)")
+        c1, c2 = st.columns(2)
+        with c1:
+            resid_hist = (
+                alt.Chart(dff)
+                .mark_bar()
+                .encode(
+                    x=alt.X("residual_formula:Q", bin=alt.Bin(maxbins=maxbins), title="Residual (USD)"),
+                    y="count()",
+                    tooltip=[alt.Tooltip("count()", title="Antal")]
+                ).properties(height=260)
+            )
+            st.altair_chart(resid_hist, use_container_width=True)
+        with c2:
+            resid_scatter = (
+                alt.Chart(dff)
+                .mark_circle(size=60, opacity=0.5)
+                .encode(
+                    x=alt.X("trip_distance_km:Q", title="Distans (km)"),
+                    y=alt.Y("residual_formula:Q", title="Residual (USD)"),
+                    color="weather:N",
+                    tooltip=["trip_distance_km","trip_price","formula_price","residual_formula","weather","traffic_conditions"]
+                )
+            )
+            st.altair_chart(resid_scatter, use_container_width=True)
+
+    # ---- Flik 2: Rutt & pris ----
+    with tab_route:
         st.subheader("Beräkna distans & tid")
-        mode = st.radio("Inmatning", ["Adresser (autocomplete)", "Koordinater"], horizontal=True)
+        mode = st.radio("Inmatning", ["Adresser", "Koordinater"], horizontal=True)
 
-        if mode == "Adresser (autocomplete)":
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write("Startadress")
-                start_selected = st_searchbox(
-                    search_function=suggest_labels_start,
-                    placeholder="Skriv t.ex. 'Sixten Camps Gata...'",
-                    clear_on_submit=False,
-                    key="sb_start",
-                )
-            with c2:
-                st.write("Måladress")
-                end_selected = st_searchbox(
-                    search_function=suggest_labels_end,
-                    placeholder="Skriv t.ex. 'Persvägen 12A...'",
-                    clear_on_submit=False,
-                    key="sb_end",
-                )
-
-            profile = st.selectbox("Profil", ["car", "bike", "foot"], index=0)
-            btn_disabled = not (start_selected and end_selected)
-
-            if st.button("Hämta distans & tid", type="primary", disabled=btn_disabled, key="btn_addr"):
+        # Inmatning + hämta rutt
+        if mode == "Adresser":
+            block = adress_autocomplete_block()
+            if st.button("Hämta distans & tid", type="primary", disabled=(block is None), key="btn_addr"):
                 try:
-                    with st.spinner("Hämtar rutt..."):
-                        data = fetch_route(start_selected["lat"], start_selected["lon"],
-                                           end_selected["lat"], end_selected["lon"], profile=profile)
-                    # SPARA i session_state → rendera nedan varje rerun
-                    st.session_state.route_payload = {"data": data, "start": start_selected, "end": end_selected}
+                    data = fetch_route(block["start"]["lat"], block["start"]["lon"],
+                                       block["end"]["lat"], block["end"]["lon"], profile=block["profile"])
+                    st.session_state[SS_ROUTE] = {"data": data, "start": block["start"], "end": block["end"]}
+                    st.session_state[SS_QUOTE] = None
                 except Exception as ex:
                     st.error(f"Något gick fel: {ex}")
-
-            if btn_disabled:
-                st.info("Sök och välj både start och mål i fälten ovan för att fortsätta.")
-
         else:
-            c1, c2 = st.columns(2)
-            with c1:
-                start_lat = st.number_input("Start lat", value=59.330000, format="%.6f")
-                start_lon = st.number_input("Start lon", value=18.058000, format="%.6f")
-            with c2:
-                end_lat = st.number_input("Mål lat", value=59.858000, format="%.6f")
-                end_lon = st.number_input("Mål lon", value=17.645000, format="%.6f")
-
-            profile = st.selectbox("Profil", ["car", "bike", "foot"], index=0, key="profile_coords")
-
+            coords = coords_input_block()
             if st.button("Hämta distans & tid", type="primary", key="btn_coords"):
                 try:
-                    with st.spinner("Hämtar rutt..."):
-                        data = fetch_route(start_lat, start_lon, end_lat, end_lon, profile=profile)
-                    st.session_state.route_payload = {"data": data, "start": None, "end": None}
+                    data = fetch_route(coords["start_lat"], coords["start_lon"],
+                                       coords["end_lat"], coords["end_lon"], profile=coords["profile"])
+                    st.session_state[SS_ROUTE] = {"data": data, "start": None, "end": None}
+                    st.session_state[SS_QUOTE] = None
                 except Exception as ex:
                     st.error(f"Något gick fel: {ex}")
 
-        # ---- Rendera rutt (oavsett läge) om vi har en sparad payload ----
-        if st.session_state.route_payload:
-            render_route_block(st.session_state.route_payload)
-            st.button("Rensa ruta", on_click=lambda: st.session_state.update(route_payload=None))
+        # Rendera rutt + pris
+        route_payload = st.session_state[SS_ROUTE]
+        if route_payload:
+            render_route_map(route_payload)
 
-        
+            st.divider()
+            st.subheader("Pris för resan")
+
+            dist = route_payload["data"]["distance_km"]
+            dur  = route_payload["data"]["duration_min"]
+
+            # meta 
+            try:
+                meta = fetch_ml_meta()
+                weather_opt = meta.get("weather_values", [])
+                traffic_opt = meta.get("traffic_values", [])
+            except requests.RequestException:
+                weather_opt = ["Clear", "Rain", "Snow"]
+                traffic_opt = ["Low", "Medium", "High"]
+
+            # 1) Tariff först
+            tariff_mode, sel_weather, sel_traffic, custom_rates = tariff_controls(weather_opt, traffic_opt)
+
+            # 2) Valuta
+            currency_choice = currency_selector()
+
+            # 3) Beräkna pris
+            cols = st.columns([1, 1, 4])
+            with cols[0]:
+                if st.button("Beräkna pris", key="btn_price"):
+                    try:
+                        payload = build_predict_payload(dist, dur, currency_choice,
+                                                        tariff_mode, sel_weather, sel_traffic, custom_rates)
+                        quote = post_predict(payload)
+                        st.session_state[SS_QUOTE] = quote
+                    except requests.RequestException as ex:
+                        st.error(f"Kunde inte hämta pris: {ex}")
+
+            with cols[1]:
+                st.button("Rensa pris", on_click=lambda: st.session_state.update({SS_QUOTE: None}))
+
+            # 4) Visa pris
+            quote = st.session_state[SS_QUOTE]
+            if quote:
+                sym = CURRENCY_SYMBOL.get(quote.get("currency", "USD"), "USD")
+                render_price_metrics(quote, sym)
+                # What-if
+                whatif_panel(dist, dur, currency_choice, weather_opt, traffic_opt)
+
+            st.divider()
+            st.button("Rensa ruta", on_click=lambda: st.session_state.update({SS_ROUTE: None}))
+
 
 if __name__ == "__main__":
     main()
