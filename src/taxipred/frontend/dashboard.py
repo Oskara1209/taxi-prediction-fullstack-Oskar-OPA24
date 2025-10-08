@@ -63,25 +63,22 @@ def fetch_route(start_lat: float, start_lon: float, end_lat: float, end_lon: flo
         raise RuntimeError(data.get("details") or data["error"])
     return data
 
-# ---------- Searchbox adapters ----------
-def suggest_labels_start(search: str):
-    hits = geocode_suggest(search)
-    return [(h.get("label", ""), h) for h in hits]
+def fetch_ml_meta():
+    r = requests.get(f"{BACKEND}/ml/meta", timeout=10)
+    r.raise_for_status()
+    return r.json()
 
-def suggest_labels_end(search: str):
-    hits = geocode_suggest(search)
-    return [(h.get("label", ""), h) for h in hits]
+def post_predict(payload: dict):
+    r = requests.post(f"{BACKEND}/api/predict", json=payload, timeout=15)
+    r.raise_for_status()
+    return r.json()
 
-# ---------- Ritfunktion för karta + metrics ----------
-def render_route_block(payload: dict):
-    """payload: {"data": route_json, "start": {"label", "lat","lon"}|None, "end": {...}|None}"""
-    data = payload["data"]
-    s = payload.get("start")
-    e = payload.get("end")
+def post_predict_batch(payloads: List[dict]):
+    r = requests.post(f"{BACKEND}/api/predict_batch", json=payloads, timeout=20)
+    r.raise_for_status()
+    return r.json()
 
-    colA, colB = st.columns(2)
-    colA.metric("Distans", f"{data['distance_km']} km")
-    colB.metric("Tid", f"{data['duration_min']} min")
+
 
     # Karta
     coords = (data.get("points") or {}).get("coordinates", [])
