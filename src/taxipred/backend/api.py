@@ -151,3 +151,30 @@ def predict_core(payload: PriceInput, clf) -> dict:
         "base_fare": base_out,
         "currency": target, 
     }
+
+
+@app.post("/api/predict", response_model= PredictionOutput)
+async def predict_price(payload: PriceInput):
+    try:
+        clf = load_model()
+        return predict_core(payload, clf)
+    except Exception as e: 
+        raise HTTPException(status_code=500, detail=f"Prediktionsfel: {e}")
+
+
+@app.post("/api/predict_batch")
+async def predict_price_batch(payloads: List[PriceInput]):
+    try:
+        clf = load_model()
+        return [predict_core(p, clf) for p in payloads]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch-prediktionsfel: {e}")
+    
+@app.get("/ml/meta")
+async def ml_meta():
+    df = taxi_data.df
+    return {
+        "weather_values": sorted(df["weather"].dropna().unique().tolist()),
+        "traffic_values": sorted(df["traffic_conditions"].dropna().unique().tolist())
+    }
+
