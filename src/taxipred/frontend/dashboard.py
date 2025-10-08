@@ -168,6 +168,78 @@ def render_route_map(route_payload: dict):
         m.fit_bounds([(min_lat, min_lon), (max_lat, max_lon)])
     st_folium(m, width=900, height=520)
 
+def build_predict_payload(dist: float, dur: float, currency: str,tariff_mode: str, weather: Optional[str], traffic: Optional[str],custom_rates: dict) -> dict:
+    """Skapa payload mot /api/predict – features skickas alltid in när vi har dem."""
+    payload = {
+        "distance_km": dist,
+        "duration_min": dur,
+        "currency": currency,
+    }
+    if tariff_mode == PER_CONDITIONS:
+        payload.update({"weather": weather, "traffic_conditions": traffic})
+    elif tariff_mode == CUSTOM:
+        payload.update(custom_rates)
+        payload.update({"weather": weather, "traffic_conditions": traffic})
+    else:
+        pass
+    return payload
+
+def render_price_metrics(quote: dict, symbol: str):
+    total = float(quote.get("predicted_price", 0.0))
+    base  = float(quote.get("base_fare", 0.0))
+    per_km = float(quote.get("per_km_rate", 0.0))
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Totalpris", f"{total:.2f} {symbol}")
+    c2.metric("Startkostnad", f"{base:.2f} {symbol}")
+    c3.metric("Pris per km", f"{per_km:.2f} {symbol}/km")
+    st.caption(f"Featureset: {quote.get('used_feature_set','?')}")
+
+
+def whatif_panel(dist: float, dur: float, currency: str,
+                 weather_opt: list, traffic_opt: list):
+    with st.expander("Pris för alla väder och trafikkombinationer"):
+        with st.spinner("Beräknar scenarier..."):
+            scenarios = [{  
+                "distance_km": dist,
+                "duration_min": dur,
+                "weather": w,
+                "traffic_conditions": t,
+                "currency": currency,
+            } for w in weather_opt for t in traffic_opt]
+
+            try:
+                resp = post_predict_batch(scenarios)
+            except requests.RequestException:
+                resp = [post_predict(p) for p in scenarios]
+
+            rows = [{"weather": s["weather"], "traffic": s["traffic_conditions"], "price": r["predicted_price"]}
+                    for s, r in zip(scenarios, resp)]
+            df = pd.DataFrame(rows)
+
+
+        # Gemensamma encodings (snygg sortering + tooltip)
+        x_weather = alt.X('weather:N', sort=weather_opt, title='Weather')
+        t_traffic = alt.Color('traffic:N', sort=traffic_opt, title='Traffic')
+        tip = [alt.Tooltip('weather:N', title='Weather'),
+               alt.Tooltip('traffic:N', title='Traffic'),
+               alt.Tooltip('price:Q', title='Pris')]
+
+        chart = (alt.Chart(df).mark_bar().encode(
+                           x=x_weather,
+                           y=alt.Y('price:Q', title=f'Pris ({currency})'),
+                           color=t_traffic,
+                           xOffset='traffic:N',  
+                           tooltip=tip
+                       ))
+        st.altair_chart(chart, use_container_width=True)
+
+
+
+        with st.expander("Tabell"):
+            pvt = (df.pivot(index="weather", columns="traffic", values="price")
+                     .reindex(index=weather_opt, columns=traffic_opt))
+            st.dataframe(pvt, use_container_width=True)
+
 def main():
     st.markdown("# Taxi Prediction Dashboard")
 
