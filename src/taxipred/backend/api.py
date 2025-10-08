@@ -1,8 +1,14 @@
-from fastapi import FastAPI, HTTPException, Query
-from taxipred.backend.data_processing import CleanTaxiData
+from fastapi import FastAPI, HTTPException 
+from taxipred.backend.data_processing import CleanTaxiData, PriceInput, PredictionOutput, Rates
+from taxipred.utils.constants import MODELS_PATH
 from dotenv import load_dotenv 
+from importlib.resources import as_file
+from typing import List
 import os 
 import requests
+import pandas as pd
+import joblib
+
 
 load_dotenv()
 
