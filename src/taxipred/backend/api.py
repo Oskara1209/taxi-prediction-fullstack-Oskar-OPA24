@@ -108,3 +108,46 @@ async def get_route(start_lat: float, start_lon: float, end_lat: float, end_lon:
         "points": path.get("points"),   # <<— LineString med coordinates = [[lon,lat,(ev. ele)], ...]
         "bbox": path.get("bbox"),       # [min_lon, min_lat, max_lon, max_lat]
     }
+
+
+def predict_core(payload: PriceInput, clf) -> dict:
+
+    if all(v is not None for v in [payload.per_km_rate, payload.per_minute_rate, payload.base_fare,]):
+        rates = Rates(per_km_rate=payload.per_km_rate, per_minute_rate=payload.per_minute_rate, base_fare=payload.base_fare)
+        source = "custom"
+    else:
+        grp = taxi_data.group_rates(payload.weather, payload.traffic_conditions)
+        if grp is not None:
+            rates, source = grp, "group"
+        else:
+            rates, source = taxi_data.average_rates(), "overall"
+
+    row = {
+        "trip_distance_km": payload.distance_km,
+        "trip_duration_minutes": payload.duration_min,
+        "per_km_rate": rates.per_km_rate,
+        "per_minute_rate": rates.per_minute_rate,
+        "base_fare": rates.base_fare,
+        "weather": payload.weather or "Clear",
+        "traffic_conditions": payload.traffic_conditions or "Medium",
+    }
+    X = pd.DataFrame([row])
+
+    y_usd = float(clf.predict(X)[0])    
+    
+    target = (payload.currency or "USD").upper()
+    if target not in FX:
+        target = "USD"
+    fx =FX[target]
+
+    total_price = round(y_usd * fx, 2)
+    perkm_out = round(float(rates.per_km_rate) * fx, 2)
+    base_out = round(float(rates.base_fare) * fx, 2)
+
+    return {
+        "predicted_price": total_price,
+        "used_feature_set": f"7_features|rates={source}",
+        "per_km_rate": perkm_out,
+        "base_fare": base_out,
+        "currency": target, 
+    }
