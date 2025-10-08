@@ -79,6 +79,73 @@ def post_predict_batch(payloads: List[dict]):
     return r.json()
 
 
+# ---------- UI-komponenter ----------
+
+def adress_autocomplete_block() -> Optional[dict]:
+        """Returnerar {"start": {...}, "end": {...}, "profile": str} eller None om inte redo."""
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.write("Startadress")
+            start = st_searchbox(
+                search_function=lambda s: [(h.get("label",""), h) for h in geocode_suggest(s)],
+                placeholder="Skriv t.ex. 'Sixten Camps Gata...'",
+                clear_on_submit=False,
+                key="sb_start",
+            )
+        with c2:
+            st.write("Måladress")
+            end = st_searchbox(
+                search_function=lambda s: [(h.get("label",""), h) for h in geocode_suggest(s)],
+                placeholder="Skriv t.ex. 'Persvägen 12A...'",
+                clear_on_submit=False,
+                key="sb_end",
+            )
+        profile = st.selectbox("Profil", ["car", "bike", "foot"], index=0)
+
+        if not (start and end):
+            st.info("Sök och välj både start och mål i fälten ovan för att fortsätta.")
+            return None
+        return {"start": start, "end": end, "profile": profile}
+
+def coords_input_block() -> dict:
+    c1, c2 = st.columns(2)
+    with c1:
+        start_lat = st.number_input("Start lat", value=59.330000, format="%.6f")
+        start_lon = st.number_input("Start lon", value=18.058000, format="%.6f")
+    with c2:
+        end_lat = st.number_input("Mål lat", value=59.858000, format="%.6f")
+        end_lon = st.number_input("Mål lon", value=17.645000, format="%.6f")
+    profile = st.selectbox("Profil", ["car", "bike", "foot"], index=0, key="profile_coords")
+    return {"start_lat": start_lat, "start_lon": start_lon, "end_lat": end_lat, "end_lon": end_lon, "profile": profile}
+
+def tariff_controls(weather_opt: list, traffic_opt: list) -> tuple[str, Optional[str], Optional[str], dict]:
+    """Returnerar (tariff_mode, weather, traffic, custom_rates) där vissa kan vara None/tomma."""
+    tariff_mode = st.radio("Tariffkälla", [GLOBAL, PER_CONDITIONS, CUSTOM], horizontal=True)
+    sel_weather, sel_traffic = None, None
+    custom_rates: dict = {}
+
+    if tariff_mode == PER_CONDITIONS:
+        col_w, col_t = st.columns(2)
+        with col_w:
+            sel_weather = st.selectbox("Weather", weather_opt or ["Clear"], key="sel_weather")
+        with col_t:
+            default_index = traffic_opt.index("Medium") if "Medium" in traffic_opt else 0
+            sel_traffic = st.selectbox("Traffic", traffic_opt or ["Medium"], index=default_index, key="sel_traffic")
+
+    if tariff_mode == CUSTOM:
+        c1, c2, c3 = st.columns(3)
+        custom_rates["base_fare"]       = c1.number_input("Startkostnad", min_value=0.0, value=50.0, step=1.0)
+        custom_rates["per_km_rate"]     = c2.number_input("Pris per km", min_value=0.0, value=12.0, step=0.5)
+        custom_rates["per_minute_rate"] = c3.number_input("Pris per minut", min_value=0.0, value=3.0, step=0.5)
+
+    return tariff_mode, sel_weather, sel_traffic, custom_rates
+
+
+def currency_selector() -> str:
+    col_cur, _ = st.columns([1,3])
+    with col_cur:
+        return st.selectbox("Valuta", ["SEK", "NOK", "EUR", "USD"], index=0, key="sel_currency")
 
     # Karta
     coords = (data.get("points") or {}).get("coordinates", [])
