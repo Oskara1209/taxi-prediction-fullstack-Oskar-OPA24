@@ -10,11 +10,40 @@ from taxipred.utils.helpers import read_api_endpoint
 BACKEND = "http://localhost:8000"
 st.set_page_config(page_title="Taxi Prediction Dashboard", layout="wide")
 
-# --- state för vald rutt (så vi kan rendera efter rerun) ---
-if "route_payload" not in st.session_state:
-    st.session_state.route_payload = None  # {"data":..., "start":..., "end":...}
+CURRENCY_SYMBOL = {"USD": "$", "SEK": "kr", "NOK": "kr", "EUR": "€"}
+
+GLOBAL = "Global(medel)"
+PER_CONDITIONS = "Per väder/trafik"
+CUSTOM = "Egen"
+
+SS_ROUTE = "route_payload"
+SS_QUOTE = "price_quote"
+
+# ---------- Init state ----------
+if SS_ROUTE not in st.session_state:
+    st.session_state[SS_ROUTE]= None  
+if SS_QUOTE not in st.session_state:
+    st.session_state[SS_QUOTE] = None 
+
+
 
 # ---------- Backend helpers ----------
+
+def load_taxi_df():
+    resp = read_api_endpoint("taxi")
+    df = pd.DataFrame(resp.json())
+    return df
+
+def try_get(url: str, **params):
+    r = requests.get(url, params=params, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+def try_post(url: str, json_body: dict | list):
+    r = requests.post(url, json=json_body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
 def geocode_suggest(q: str, limit: int = 5, locale: str = "sv"):
     if not q or len(q.strip()) < 2:
         return []
